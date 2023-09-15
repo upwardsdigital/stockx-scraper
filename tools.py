@@ -83,13 +83,13 @@ def formatted_products(products):
         }
         products_formatted.append(data_product)
 
-        data = {
-            "status": "0",
-            "source": "stockX",
-            "category": "sneakers",
-            "products": products_formatted
-        }
-        return data
+    data = {
+        "status": "0",
+        "source": "stockX",
+        "category": "sneakers",
+        "products": products_formatted
+    }
+    return data
 
 
 def post_products(products_formatted):
@@ -99,6 +99,8 @@ def post_products(products_formatted):
             json=products_formatted,
             headers={"Accept": "application/json"}
         )
+        with open('test.json', 'w') as f:
+            json.dump(products_formatted, f)
         print(response.text)
         if response.status_code == 200:
             log.info("OK")
