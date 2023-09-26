@@ -1,5 +1,9 @@
 import asyncio
+import threading
 import time
+import concurrent.futures
+import threading
+import queue
 
 import requests
 import json
@@ -7,6 +11,7 @@ from pathlib import Path
 import numpy as np
 from decouple import config
 import multiprocessing
+import queue
 
 import stockx
 from tools import formatted_products, post_products
@@ -20,13 +25,18 @@ NUM_PROCESSES = int(config('NUM_PROCESSES'))
 
 def run_async_scrape_slugs(category):
     loop = asyncio.get_event_loop()
-    return loop.run_until_complete(stockx.scrape_slugs(category))
+    slugs = loop.run_until_complete(stockx.scrape_slugs(category))
+    return slugs
 
 
-def run_async_scrape_product(url):
-    loop = asyncio.get_event_loop()
-    time.sleep(0.5)
-    return loop.run_until_complete(stockx.scrape_product(url))
+def run_async_scrape_product(url, result_queue):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    # loop = asyncio.get_event_loop()
+    # time.sleep(0.5)
+    product = loop.run_until_complete(stockx.scrape_product(url))
+    result_queue.put(product)
+    # return product
 
 
 async def run():
@@ -61,16 +71,34 @@ async def run():
         for slug_by_server_number in slugs
     ]
     formatted_slugs = np.array_split(
-        slugs, len(slugs) / 10
+        slugs, len(slugs) / NUM_PROCESSES
     )
+    # for slug_parts in formatted_slugs:
+    #     pool = multiprocessing.Pool(processes=NUM_PROCESSES)
+    #     products = pool.map(run_async_scrape_product, slug_parts.tolist())
+    #     pool.close()
+    #     pool.join()
+    #     products_formatted = formatted_products(products)
+    #     post_products(products_formatted)
+    #     print("All processes have completed successfully")
+
     for slug_parts in formatted_slugs:
-        pool = multiprocessing.Pool(processes=NUM_PROCESSES)
-        products = pool.map(run_async_scrape_product, slug_parts.tolist())
-        pool.close()
-        pool.join()
-        products_formatted = formatted_products(products)
+        result_queue = queue.Queue()
+        threads = []
+        for i in slug_parts.tolist():
+            thread = threading.Thread(target=run_async_scrape_product, args=(i, result_queue))
+            threads.append(thread)
+            thread.start()
+
+        for thread in threads:
+            thread.join()
+        results = []
+        while not result_queue.empty():
+            results.append(result_queue.get())
+
+        products_formatted = formatted_products(results)
         post_products(products_formatted)
-        print("All processes have completed successfully")
+        print("All treads have completed successfully")
 
 
 if __name__ == "__main__":
